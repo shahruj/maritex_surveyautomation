@@ -33,6 +33,20 @@ import zipfile
 from flask import send_file
 from shutil import rmtree
 import tempfile
+import subprocess
+import re
+
+def slugify(text):
+    # Replace spaces with underscores
+    text = text.replace(" ", "_")
+    
+    # Remove special characters, leaving only alphanumeric, hyphens, and underscores
+    text = re.sub(r"[^a-zA-Z0-9_-]", "", text)
+    
+    # Convert to lowercase
+    text = text.lower()
+    
+    return text
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes in the app
@@ -62,8 +76,8 @@ def upload_photos():
     if 'username' not in request.form or 'reportname' not in request.form:
         print("BROTHERS")
         return jsonify({'error': 'Incomplete data provided'}), 400
-    username = request.form['username']
-    reportname = request.form['reportname']
+    username = slugify(request.form['username'])
+    reportname = slugify(request.form['reportname'])
     print(username,reportname)
     uploaded_urls = []
     for key, photo in request.files.items():
@@ -83,14 +97,67 @@ def upload_photos():
 
     return jsonify({'uploaded_photos': uploaded_urls}), 200
 
+@app.route('/download_zip', methods=['GET'])
+def download_zip():
+    if 'username' not in request.args or 'reportname' not in request.args:
+        return jsonify({'error': 'Incomplete data provided'}), 400
+
+    username = request.args['username']
+    reportname = request.args['reportname']
+    storage_path = f'{username}/{reportname}'
+    blobs = bucket.list_blobs(prefix=storage_path)
+
+    zip_filename = '{username}_{reportname}_photos.zip'
+
+    # Create a Zip file
+    with zipfile.ZipFile(zip_filename, 'w') as zip_file:
+        # List files in the GCS bucket path
+        blobs = bucket.list_blobs(prefix=storage_path)
+        for blob in blobs:
+            print(blob)
+            temp_dir = tempfile.mkdtemp(prefix=f'{username}_{reportname}_{blob.name}', dir=tempfile.gettempdir())
+            # Download each file and add it to the Zip file
+            blob.download_to_filename(temp_dir)
+            zip_file.write(temp_dir)
+            os.remove(temp_dir)
+
+    # Send the Zip file as a response
+    return send_file(zip_filename, as_attachment=True)
+
+@app.route('/download_folder', methods=['GET'])
+def download_folder():
+    bucket_name = 'maritexreports'
+    username = request.args['username']
+    reportname = request.args['reportname']
+
+    folder_path = f'{username}/{reportname}'
+    # destination_path = 'downloaded_folder'
+    destination_path = tempfile.mkdtemp(prefix=f'{username}_{reportname}', dir=tempfile.gettempdir())
+    # Create the destination directory if it doesn't exist
+    os.makedirs(destination_path, exist_ok=True)
+
+    # Use gsutil command to copy the folder from GCS to the local directory
+    gsutil_command = f'gsutil -m cp -r "gs://{bucket_name}/{folder_path}" {destination_path}'
+    subprocess.run(gsutil_command, shell=True, check=True)
+
+    # Create a Zip file from the downloaded folder
+    zip_filename = 'downloaded_folder.zip'
+    with subprocess.Popen(['zip', '-r', zip_filename, 'downloaded_folder'], stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
+        process.communicate()
+
+    # Remove the downloaded folder after creating the Zip file
+    subprocess.run(['rm', '-rf', 'downloaded_folder'])
+
+    # Send the Zip file as a response
+    return send_file(zip_filename, as_attachment=True)
 
 @app.route('/download_photos', methods=['GET'])
 def download_photos():
     if 'username' not in request.args or 'reportname' not in request.args:
         return jsonify({'error': 'Incomplete data provided'}), 400
 
-    username = request.args['username']
-    reportname = request.args['reportname']
+    username = slugify(request.args['username'])
+    reportname = slugify(request.args['reportname'])
 
     storage_path = f'{username}/{reportname}'
     blobs = bucket.list_blobs(prefix=storage_path)
@@ -98,7 +165,7 @@ def download_photos():
     # Create a temporary directory to store the downloaded photos
     # temp_dir = f'/tmp/{username}_{reportname}'
     # os.makedirs(temp_dir, exist_ok=True)
-    temp_dir = tempfile.mkdtemp(prefix=f'{username}_{reportname}_', dir=tempfile.gettempdir())
+    temp_dir = tempfile.mkdtemp(prefix=f'{username}_{reportname}', dir=tempfile.gettempdir())
 
     try:
         print(request.files.items())
@@ -107,15 +174,19 @@ def download_photos():
             bucket_name = blob.bucket.name
             object_path = blob.name
             unique_identifier = blob.generation
+            print(blob.name)
             filename = secure_filename(blob.name)
             # Download the photo to the temporary directory
             temp_filepath = os.path.join(temp_dir, filename)
             print("downloading")
+            print(temp_filepath)
             blob.download_to_filename(temp_filepath)
 
         # Create a zip file containing the downloaded photos
         zip_filename = f'{username}_{reportname}_photos.zip'
-        zip_filepath = os.path.join(temp_dir, zip_filename)
+        print(zip_filename)
+        zip_filepath = os.path.join(tempfile.mkdtemp(prefix=f'', dir=tempfile.gettempdir()), zip_filename)
+        print(zip_filepath)
         with zipfile.ZipFile(zip_filepath, 'w') as zip_file:
             for root, _, files in os.walk(temp_dir):
                 for file in files:
@@ -134,6 +205,7 @@ def download_photos():
     finally:
         # Remove the temporary directory after sending the file
         rmtree(temp_dir, ignore_errors=True)
+        # os.remove(zip_filepath)
 
 # @app.route('/download_photos', methods=['GET'])
 # def download_photos():
@@ -186,7 +258,7 @@ def signup():
     if 'username' not in data or 'password' not in data:
         return jsonify({'error': 'Username and password are required'}), 400
 
-    username = data['username']
+    username = slugify(data['username'])
     password = data['password']
     email = data['email']
     status = 'Basic'
@@ -195,7 +267,8 @@ def signup():
         return jsonify({'error': 'Username already taken'}), 400
 
     # Hash the password before storing
-    hashed_password = generate_password_hash(password, method='sha256')
+    hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+
 
     # Store user data in Firestore
     users_collection.document(username).set({
@@ -215,7 +288,7 @@ def login():
     if 'username' not in data or 'password' not in data:
         return jsonify({'error': 'Username and password are required'}), 400
 
-    username = data['username']
+    username = slugify(data['username'])
     password = data['password']
 
     user_doc = users_collection.document(username).get()
@@ -314,10 +387,10 @@ def create_report():
     if not all(field in data for field in required_fields):
         return jsonify({'error': 'Missing required fields'}), 400
 
-    username = data['username']
-    vesselname = data['vesselname']
-    reporttitle = data['reporttitle']
-    reporttype = data['reporttype']
+    username = slugify(data['username'])
+    vesselname = slugify(data['vesselname'])
+    reporttitle = slugify(data['reporttitle'])
+    reporttype = slugify(data['reporttype'])
     completed = False  # Default value for the completed field
 
     # Check if the user exists
