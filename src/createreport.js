@@ -16,13 +16,14 @@ const CreateReportComponent = ({username}) => {
   const [isDialogOpen, setDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedReport, setSelectedReport] = useState(null);
-
+  const [downloading, setDownloading] = useState(false);
   const handleOpenDialog = (report) => {
     setSelectedReport(report);
     setDialogOpen(true);
   };
 
   const handleDownload = (report) => {
+    setDownloading(true)
     // Replace 'your_server_url' with the actual URL of your Flask server
     const url = `http://127.0.0.1:5000/download_photos?username=${username}&reportname=${report.vesselname}_${report.reporttitle}`;
 
@@ -31,6 +32,7 @@ const CreateReportComponent = ({username}) => {
         if (!response.ok) {
           throw new Error('Network response was not ok');
         }
+        setDownloading(false)
         return response.blob();
       })
       .then((blob) => {
@@ -136,11 +138,11 @@ const CreateReportComponent = ({username}) => {
   return (
     <Container>
       <Grid container spacing={2}>
-        <Grid item xs={1}>
+        {/* <Grid item xs={0}>
         
-        </Grid>
+        </Grid> */}
 
-        <Grid item xs={3}>
+        <Grid item xs={4}>
           <br></br>
           <br></br>
           <Typography align="center">
@@ -197,7 +199,7 @@ const CreateReportComponent = ({username}) => {
           </form>
         </Grid>
 
-        <Grid item xs={7}>
+        <Grid item xs={8}>
             <br></br>
             <br></br>
             <br></br>
@@ -233,12 +235,15 @@ const CreateReportComponent = ({username}) => {
                             </Typography>
                         </Grid> 
                         <Grid item xs={3}>
-                          <Button variant="contained" color="primary" onClick={() => handleOpenDialog(report)}>
+                        <Button variant="contained" color="primary" onClick={() => handleOpenDialog(report)}>
                             Upload Photos
                           </Button>
+                        </Grid>  
+                        <Grid item xs={3}>
                           <Button variant="contained" color="primary" onClick={() => handleDownload(report)}>
                             Download Photos
                           </Button>
+                          {downloading ?(<CircularProgress/>):(<div></div>)}
                         </Grid>   
                     </Grid>
                   </CardContent>
@@ -247,8 +252,8 @@ const CreateReportComponent = ({username}) => {
             </div>)}
         </Grid>
 
-        <Grid item xs={1}>
-        </Grid>
+        {/* <Grid item xs={0}>
+        </Grid> */}
 
       </Grid>
       <Dialog open={isDialogOpen} onClose={handleCloseDialog}>
