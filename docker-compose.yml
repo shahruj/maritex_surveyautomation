@@ -1,0 +1,9 @@
+version: "3.8"
+services:
+  app:
+    container_name: data-processing-tool
+    image: data-processing-tool
+    build:
+      context: .
+    ports:
+      - 5000:5000
