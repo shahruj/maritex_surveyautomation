@@ -22,7 +22,7 @@
 #     print(f"Document Data: {document.to_dict()}")
 
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS  # Import the CORS class
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -69,6 +69,11 @@ reports_collection = db.collection("maritexai_reports")
 client = storage.Client()
 bucket_name = 'maritexreports'
 bucket = client.bucket(bucket_name)
+
+
+@app.route("/")
+def homepage():
+    return render_template("index.html")
 
 # Define the endpoint for batch photo upload
 @app.route('/upload_photos', methods=['POST'])
